@@ -2,12 +2,15 @@ SUBSIDIZED HOUSING IN TORONTO
 Word count = 499
 
 The urban dataset I selected is the Subsidized Housing Listing (City of Toronto 2025) published by Open Data Toronto. This dataset contains administrative information on all of the subsidized buildings in Toronto that use the Centralized Waiting List to fill Rent-Geared-to-Income vacancies. The data is separated into the building and unit level. The building level has entries for each building, while the unit level has entries for each unit type that each building has. Importantly, information on the amount of subsidized units resides in the unit level dataset, while information on building location and management is in the building level dataset; to analyze subsidized unit counts and the buildings they are in, both tables must be used. 
+
 Both tables can be downloaded in CSV, JSON, or XML format. I typically prefer CSV as it is familiar and simple to use with Excel, Python, or R, the tools I usually use for analysis. The building and unit tables are in long and wide format, respectively. The building table has entries for each building, with key variables being the building complex name, building address list, ward, building type, building address, latitude and longitude, provider type, and provider name. These data points will help connect unit data to buildings data, plot building locations, and understand the distribution of subsidized housing providers. All variables in the unit table would be useful, informing the unit makeup, the amount of market or subsidized units, the income limits, and the unit availability in the last year of each of the building complexes in the building dataset. Most data points related to the buildings are nominal; units available, subsidized and market unit counts, and latitude and longitude are ratios. 
+
 This dataset can be used to understand the current portfolio and use of subsidized housing in Toronto. It holds data on the amounts of subsidized housing units, where these units are, who the building providers are, and more. Some questions this dataset can answer that could drive the development of a data story are: 
-How many subsidized housing units are there? 
-Who are the providers of subsidized housing in Toronto?
-What is the distribution of subsidized housing unit types? 
-Where are subsidized housing buildings located?
+- How many subsidized housing units are there? 
+- Who are the providers of subsidized housing in Toronto?
+- What is the distribution of subsidized housing unit types? 
+- Where are subsidized housing buildings located?
+
 The dataset consists of administrative data gathered by the Housing Secretariat based on clear definitions for each variable. Shortcomings in the reporting are possible, though, and a thorough review on how this data is gathered would be needed to be confident there are no missing or incorrect data points, and if so, why. A significant limitation of this dataset is that it only contains two years of data, starting from Summer 2024, limiting any historical analysis. Additionally, data is only published yearly, and thus unable to be used for analysis of any smaller time frequency. While no metrics are in this dataset, those that are calculated rely on the completeness of the data. To avoid simplifications, conclusions made from this data must be rooted in the geography and sociopolitical conditions surrounding the data.
 
 REFERENCES
