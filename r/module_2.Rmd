@@ -1,0 +1,163 @@
+---
+title: "module_2"
+output: html_document
+---
+
+# Data processing and analytics
+Part of module 2 uses three datasets to help teach common data operations. These datasets are on New York cities, cities, and capital cities.
+
+First, import useful libraries:
+```{r}
+library(tidyr)
+library(janitor)
+library(ggplot2)
+library(dplyr)
+```
+
+Then import data from the files:
+```{r}
+df_cities <- read.csv("./data/cities.csv") |> clean_names()
+df_capitals <- read.csv("./data/capitals.csv") |> clean_names()
+df_ny_cities <- read.csv("./data/new_york_cities.csv") |> clean_names()
+```
+
+Prepare the data:
+```{r}
+# column should be bool
+df_capitals <- df_capitals |>
+  mutate(is_capital=ifelse(is_capital=="True", TRUE, FALSE))
+```
+
+
+## Filtering exercises
+Selecting only the rows that meet conditions of interest. Good filtering must be clear on what data should be kept. 
+
+Key questions to ask are:
+1. What do you want to understand?
+2. Which records help answer the questions you have?
+
+**Q1: How many cities are there with a population of 100,000 or more in 2021?**
+I want to understand the number of cities with a population of 100,000 or more in 2021. The cities df has a feature perfect for this question, giving the population of the city in 2021. I can filter this feature by this condition and count how many rows remain. 
+```{r}
+df_cities |>
+  select(population_2021) |>
+  filter(population_2021 >= 100000) |>
+  count()
+```
+Of the 179 cities, 56 have populations above 100,000 in 2021. 
+
+**Q2: How many cities are in Alberta?**
+To understand the number of cities in Alberta, I need to filter all records where the prov_terr is equal to Alberta and count the records that remain. First, the abbreviation for Alberta used in the column must be found, then filter by it and count the records. 
+```{r}
+# find abbreviation for Alberta
+df_cities$prov_terr |> unique()
+
+# filter by the abbreviation "Alta."
+df_cities |>
+  select(prov_terr) |>
+  filter(prov_terr=="Alta.") |>
+  count()
+```
+17 out of 179 cities are in Alberta.
+
+## Sorting exercises
+Arranging rows can help reveal patterns and highlight key observations. How you sort should depend on which order is best to help answer your analytical question.
+
+**Q1: Which 3 cities had the most population in 2021?**
+To get the top 3 populous cities in 2021, the name and population_2021 features are necessary. With these columns, I can sort by the population and then take the top 3 cities.
+```{r}
+df_cities |>
+  select(name, population_2021) |>
+  arrange(desc(population_2021)) |>
+  slice_head(n=3)
+```
+The top 3 cities by population in 2021 are Toronto, Montréal, and Calgary. 
+
+**Q2: What provinces/territories do the top 10 cities ranked by population in 2021 belong to?**
+The features needed are prov_terr and 2021 population. After ranking by population and taking the top 10, the answer is the unique list of prov_terr values. 
+```{r}
+df_cities |>
+  select(prov_terr, population_2021) |>
+  arrange(desc(population_2021)) |>
+  slice_head(n=10) |>
+  select(prov_terr) |>
+  unique()
+```
+These cities belong to Ontario, Quebec, Alberta, Manitoba, and B.C.
+
+## Joining datasets exercises
+By joining datasets, the information available in a single table is increased, potentially enriching analysis.
+
+Two common types of joins:
+- Vertical concatenation: Stacking new rows onto a table where the columns are the same
+- Horizontal merging: Combining datasets with a shared key, adding new columns for existing records
+
+Good joining practice:
+- Ensure keys align correctly
+- Handle missing matches
+- Maintain data integrity
+
+**Q1: Use vertical concatenation to add NY cities into the cities dataframe. How many rows are there now?**
+This could be found by simply adding the rows of each dataframe. The intended solution is to add the NY cities data to the cities data and count the number of observations. 
+```{r}
+df_cities |>
+  rbind(df_ny_cities) |> # used to vertically concat dfs in R
+  count()
+```
+There are 181 rows after vertically concatenating the tables. 
+
+**Q2: What are the top 3 cities by 2021 population?**
+With the concatenated data, select name and 2021 population, sort by population, and take the top 3 observations. 
+```{r}
+df_cities |>
+  rbind(df_ny_cities) |> 
+  select(name, population_2021) |>
+  arrange(desc(population_2021)) |>
+  slice_head(n=3)
+```
+After concatenating the data tables, NYC has taken the top spot, with Calgary falling out. 
+
+**Q3: Horizontally merge cities with capitals on the column 'Name'. How many cities are capitals in this dataset?**
+Merge the cities table with capitals; it is an inner join that only keeps records that appear in both tables. Now count those that are capital cities. If this was meant to be a left join, the same info could be found by filtering where is_capital is equal to TRUE and counting the observations. 
+```{r}
+df_cities |>
+  merge(df_capitals, by="name") |>
+  filter(is_capital==TRUE) |>
+  count()
+```
+There are 11 capital cities. 
+
+## Handling missing data exercises
+TODO
+
+## Summary statistics exercises
+TODO
+
+## Grouping and aggregation exercises
+TODO
+
+## Calculating new variables exercises
+TODO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
