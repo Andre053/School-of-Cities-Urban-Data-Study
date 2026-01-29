@@ -128,16 +128,103 @@ df_cities |>
 There are 11 capital cities. 
 
 ## Handling missing data exercises
-TODO
+When there is missing or incomplete data you must use your best judgement on how to handle it. There are some common approaches for how to move forward:
+- Remove incomplete data: Simple and effective if there are few missing values. Can lead to misleading analyses
+- Imputation of replacement: Fill incomplete records with constants, averages, or modeled estimates. Introduces assumptions to the data
+- Selective handling: Only handle missing data in essential columns
+
+**Q1: How many rows have missing data in 'Name'?**
+Select the name column and count rows where the value is an empty string. These could have been filled with NA when the data was loaded in.  
+```{r}
+df_cities |>
+  select(name) |>
+  filter(name=="") |>
+  count()
+```
+There are 3 records with missing name data. 
+
+**Q2: In 'Prov/terr'?**
+Do the same for province/territory
+```{r}
+df_cities |>
+  select(prov_terr) |>
+  filter(prov_terr=="") |>
+  count()
+```
+There are 4 records with missing province/territory data. 
+
+**Q3: Remove every row which has missing data. How many remain?**
+Filter out all rows where there is an NA value. If all columns used NA to signify missing data, the code could be simplified. 
+```{r}
+df_cities |>
+  filter(
+    name != "",
+    prov_terr != "",
+    ! is.na(population_2016),
+    ! is.na(population_2021)
+  ) |>
+  count()
+```
+There are 167 records without missing data.
 
 ## Summary statistics exercises
-TODO
+Descriptive statistics outline the main characteristics of the data, such as distribution, central tendencies, and variation.
+
+Common summary measures:
+- Count: Number of observations available
+- Mean and median: Central tendency values
+- Min, max, percentiles: Extremes and spread
+- Standard deviation and variance: Spread of different data points
+
+**Q1: What is the mean population for 2016?**
+Get 2016 population data and calculate the mean, ignoring NA values. 
+```{r}
+mean(df_cities$population_2016, na.rm = TRUE)
+```
+Cities have, on average, 144,168.6 people in 2016.
+
+**Q2: What is the minimum population for 2016?**
+Find the minimum of the 2016 population data. 
+```{r}
+min(df_cities$population_2016, na.rm = TRUE)
+```
+In 2016, the smallest city in the dataset had a population of 23,787 people.
 
 ## Grouping and aggregation exercises
-TODO
+Move from individual records to purposeful groupings and aggregate statistics.
+
+Grouped workflow:
+1. Choose a variable to group by
+2. Select one or more descriptive measures to compute
+
+*No exercises*
 
 ## Calculating new variables exercises
-TODO
+Oftentimes, you may want to create new variables based off of the raw data.
+
+Useful derived measures:
+- Standardized comparisons
+- Adjust for scale
+- Express quantities in better ways
+
+Common derived measures:
+- Percentages and rates
+- Ratios
+
+**Q1: Calculate each city's population change between 2016 and 2021 by creating a new column called 'PctPopChange'. What is the percentage change in Toronto?**
+Create a new column that is the percentage change between 2016 and 2021 populations. This is done dividing the 2021 population by the 2016 population, multiplying by 100 (for % value), then subtracting 100 to get the % change. Additionally, round each value to two decimal places as requested by the question. Finally, filter the data and isolate the value for Toronto. 
+```{r}
+df_cities |>
+  mutate(
+    pct_pop_change=round(
+      ((population_2021) / (population_2016) * 100) - 100, 
+      digits = 2
+  ))  |>
+  select(name, pct_pop_change) |>
+  filter(name=="Toronto")
+  
+```
+
 
 
 
