@@ -11,7 +11,7 @@
 - Introduction to urban data
 - Measuring the city: metrics and indicators
 - Subjectivity and objectivity in data 
-### Key terms and definitions
+### Terms and definitions
 - Variable: Measurable attribute or characteristic
 - Observation / record: Single unit of measurement in a dataset
 - Dataset: Structured collection of related observations

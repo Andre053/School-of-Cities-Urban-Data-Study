@@ -1,0 +1,932 @@
+---
+title: "module_2_discussion"
+author: "André de Biasi"
+date: "2026-01-23"
+output: html_document
+---
+
+# Module 2 Discussion
+
+## Requirements
+- Create at least 2 charts that reveal meaningful patterns in the data
+- Select appropriate chart types
+- Apply visual variables, hierarchy, and accessibility principles
+- Communicate what the charts show and why you chose those specific chart types
+- Demonstrate some initial thought about the final project
+
+## Data exploration
+Load libraries
+```{r}
+library(tidyr)
+library(janitor)
+library(ggplot2)
+library(forcats)
+library(dplyr)
+
+library(opendatatoronto)
+```
+
+### Prep the data
+Load in data (https://open.toronto.ca/dataset/subsidized-housing-listings/)
+```{r}
+# get package
+package <- show_package("153ea449-b7f4-4c4d-889a-ec0f89b3bbc9")
+	
+# get all resources for this package
+resources <- list_package_resources("153ea449-b7f4-4c4d-889a-ec0f89b3bbc9")
+	
+# identify datastore resources; by default, Toronto Open Data sets datastore resource format to CSV for non-geospatial and GeoJSON for geospatial resources
+datastore_resources <- filter(resources, tolower(format) %in% c('csv', 'geojson'))
+	
+# load the first datastore resource as a sample
+df_buildings <- filter(datastore_resources, row_number()==1) |> get_resource() |> clean_names()
+df_units <- filter(datastore_resources, row_number()==2) |> get_resource() |> clean_names()
+```
+
+Format the dfs
+```{r}
+df_units$household_income_limit <- as.numeric(df_units$household_income_limit)
+df_units$units_available_in_the_last_12_months <- as.numeric(df_units$units_available_in_the_last_12_months)
+df_units$number_of_market_rent_units <- as.numeric(df_units$number_of_market_rent_units)
+df_units$number_of_subsidized_units <- as.numeric(df_units$number_of_subsidized_units)
+
+
+df_buildings$ward <- as.numeric(df_buildings$ward)
+```
+
+### Explore df_buildings
+
+```{r}
+df_buildings |>
+  select(building_complex_name) |>
+  unique() |>
+  count()
+
+df_buildings |>
+  select(building_complex_name, building_address_list) |>
+  group_by(building_address_list) |>
+  count() |>
+  arrange(desc(n))
+```
+Building complex name is unique, but some building address lists (full address) have multiple buildings. The following have multiple buildings at the same address:
+- 3370 Kingston Road	
+- 43 Goldwin Avenue	
+- 51 The Chimneystack Road	
+- 633 Lake Shore Boulevard West
+
+Building accessibility is measured by many features in this table. 
+
+Wheelchair accessibility:
+```{r}
+df_buildings |>
+  select(wheelchair_accessible_building, wheelchair_accessible_units) |>
+  count(wheelchair_accessible_building, wheelchair_accessible_units) |>
+  arrange(desc(n))
+```
+Building and unit accessibility is most common, followed by neither.
+
+How many buildings honour the terminally ill priority?
+```{r}
+df_buildings |>
+  select(terminally_ill) |>
+  count(terminally_ill) |>
+  arrange(desc(n))
+```
+473 buildings honour the terminally ill priority. 
+
+How many buildings have elevators or stairs only?
+```{r}
+df_buildings |>
+  select(elevators, stairs_only) |>
+  count(elevators, stairs_only) |>
+  arrange(desc(n))
+```
+
+How many buildings have AC?
+```{r}
+df_buildings |>
+  select(air_conditioning) |>
+  count(air_conditioning) |>
+  arrange(desc(n))
+```
+518 buildings do not have AC.
+
+How many buildings have parking?
+```{r}
+df_buildings |>
+  select(parking) |>
+  count(parking) |>
+  arrange(desc(n))
+```
+457 buildings offer parking.
+
+Which wards are buildings located in?
+```{r}
+df_buildings |>
+  select(ward) |>
+  count(ward) |>
+  arrange(desc(n))
+```
+Buildings are across 25 different wards. Ward 13 has the most buildings at 66.
+
+### Exploring df_units
+Are the amount of buildings in this table the same as df_buildings?
+```{r}
+df_units |> 
+  select(building_complex_name) |>
+  unique() |>
+  count()
+```
+There are 577 different building complexes in df_units, one less than the df_building table 
+
+Which is missing?
+```{r}
+df_buildings |> 
+  select(building_complex_name) |>
+  filter(! building_complex_name %in% df_units$building_complex_name)
+```
+Agnes Mcphail Townhouses is the one building not in the df_units table. 
+
+What is the distribution of unit types?
+```{r}
+df_units |>
+  select(unit_size, number_of_market_rent_units, number_of_subsidized_units) |>
+  group_by(unit_size) |>
+  summarize(
+    total_market_units=sum(number_of_market_rent_units), 
+    total_subsidized_units=sum(number_of_subsidized_units), 
+    total_units=sum(sum(number_of_market_rent_units), sum(number_of_subsidized_units))
+  ) |>
+  arrange(desc(total_units))
+```
+For both market and subsidized units, the total unit amount of available units follow
+the following order: 1B, 2B, B, 3B, 4B, 5B, 6B.
+
+Visualize
+```{r}
+df_units |>
+  select(unit_size, number_of_market_rent_units, number_of_subsidized_units) |>
+  group_by(unit_size) |>
+  summarize(
+    total_market_units=sum(number_of_market_rent_units), 
+    total_subsidized_units=sum(number_of_subsidized_units)
+  ) |>
+  pivot_longer(
+    cols=starts_with("total_"), 
+    names_to="unit_type", 
+    names_prefix="total_",
+    values_to="unit_count"
+  ) |>
+  ggplot(aes(x=reorder(unit_size, -unit_count), y=unit_count, fill=unit_type)) +
+    geom_col() +
+    labs(
+      title="1 Bedrooms are most prevalent",
+      subtitle="Count of units by size and type",
+      x="Unit size",
+      y="Count",
+      fill="Unit type"
+    )
+```
+
+Adjust for the estimated population:
+
+Key to calculate for population.
+```{r}
+size_estimates = data.frame(
+  unit_size=c("B", "1B", "2B", "3B", "4B", "5B", "6B"),
+  unit_pop_est=c(1, 1, 2, 3, 4, 5, 6)
+)
+
+# ward 1 to 25
+ward_names = data.frame(
+  ward=sort(unique(df_buildings$ward)),
+  ward_name=c(
+    "Etobicoke North",
+    "Etobicoke Centre",
+    "Etobicoke-Lakeshare",
+    "Parkdale-High Park",
+    "York South-Weston",
+    "York Centre",
+    "Humber River-Black Creek",
+    "Eglington-Lawrence",
+    "Davenport",
+    "Spadina-Fort York",
+    "University-Rosedale",
+    "Toronto-St. Paul's",
+    "Toronto Centre",
+    "Toronto-Danforth",
+    "Don Valley West",
+    "Don Valley East",
+    "Don Valley North",
+    "Willowdale",
+    "Beaches-East York",
+    "Scarborough Southwest",
+    "Scarborough Centre",
+    "Scarborough-Agincourt",
+    "Scarborough North",
+    "Scarborough-Guildwood",
+    "Scarborough-Rouge Park"
+  )
+)
+```
+
+
+By ward
+```{r}
+df_buildings |>
+  select(ward) |>
+  group_by(ward) |>
+  count(ward) |>
+  ggplot(aes(x=reorder(ward, -n), y=n)) +
+    geom_col() +
+    labs(
+      title="Ward 13 has the most buildings",
+      subtitle="Count of buildings by ward",
+      x="Ward number",
+      y="Count"
+    )
+```
+
+Add unit info to each building:
+```{r}
+# join subsidized unit counts on building
+df_building_units <- df_buildings |>
+  select(
+    building_complex_name, 
+    building_address_list,
+    ward,
+    latitude,
+    longitude
+  ) |>
+  merge(df_units, by="building_complex_name") |>
+  merge(ward_names, by="ward") |>
+  merge(size_estimates, by="unit_size")
+```
+
+### Relation between buildings per ward and number of subsidized units per ward
+Buildings per ward:
+```{r}
+df_building_units |>
+  select(building_complex_name) |>
+  unique() |>
+  count()
+
+df_building_units |>
+  select(building_complex_name, ward) |>
+  unique() |>
+  group_by(ward) |>
+  count() |>
+  ggplot(aes(x=reorder(ward, -n), y=n)) +
+    geom_col() +
+    geom_text(
+      aes(label=n),
+      position=position_dodge(width=0.5),
+      vjust=-0.2
+    ) +
+    labs(
+      title="Ward 13 has the most buildings at 66",
+      subtitle="Count of building complexes with subsidized units by ward",
+      x="Ward",
+      y="Count"
+    ) +
+    theme_classic() + # the following lines try to add padding to the top of the plot
+    theme( 
+      plot.margin = margin(t=15, unit="pt")
+    ) +
+    coord_cartesian(clip="off")
+    
+```
+576 building complexes with subsidized housing. 
+
+Ward 13 has the most building complexes with subsidized units. 
+
+Units per ward, does not account for different unit sizes:
+```{r}
+df_building_units |>
+  select(ward_name, number_of_subsidized_units) |>
+  group_by(ward_name) |>
+  summarize(total_units=sum(number_of_subsidized_units)) |>
+  ggplot(aes(x=reorder(ward_name, -total_units), y=total_units)) +
+    geom_col() +
+    geom_text(
+      aes(label=total_units),
+      position=position_dodge(width=0.5),
+      vjust=0.35,
+      hjust=0
+    ) +
+    labs(
+      title="Toronto Centre (13) has the most subsidized units at 9168",
+      subtitle="Count of subsidized units by ward",
+      x="Ward",
+      y="Count"
+    ) +
+    theme_classic() + # the following lines try to add padding to the top of the plot
+    theme( 
+      plot.margin = margin(t=15, unit="pt")
+    ) +
+    coord_cartesian(clip="off") +
+    coord_flip()
+```
+While Ward 13 still has the most units, the following wards show differing numbers compared to the building counts.
+
+The unit counts do not match the potential housing counts. Assuming the amount of people in a unit matches the amount of bedrooms it has, the housing availability by unit is:
+```{r}
+# must multiply each unit size by the estimated people living in the unit
+# B and 1B = 1, 2B = 2, 3B = 3, etc. 
+
+
+df_building_units |>
+  select(ward, ward_name, unit_pop_est, number_of_subsidized_units) |>
+  group_by(ward_name) |>
+  summarize(total_capacity=sum(number_of_subsidized_units * unit_pop_est)) |>
+  ggplot(aes(x=reorder(ward_name, -total_capacity), y=total_capacity)) +
+    geom_col() +
+    geom_text(
+      aes(label=total_capacity),
+      position=position_dodge(width=0.5),
+      vjust=0.35,
+      hjust=0
+    ) +
+    labs(
+      title="Toronto Centre (13) has the most subsidized unit capacity at 9168",
+      subtitle="Estimated subsidized housing capacity by ward",
+      x="Ward",
+      y="Capacity"
+    ) +
+    theme_classic() + # the following lines try to add padding to the top of the plot
+    theme( 
+      plot.margin = margin(t=30, r=10, unit="pt")
+    ) +
+    coord_cartesian(clip="off") +
+    coord_flip()
+```
+Weighting each unit size by the estimated capacity of the unit provides the most informative statistics on the potential capacity of each ward. 
+
+This difference in unit count and estimated capacity can be visualized:
+```{r}
+# TODO add line of best fit
+df_building_units |>
+  select(ward, ward_name, unit_pop_est, number_of_subsidized_units) |>
+  group_by(ward_name) |>
+  summarize(
+    total_capacity=sum(number_of_subsidized_units * unit_pop_est),
+    total_units=sum(number_of_subsidized_units)
+  ) |>
+  ggplot(aes(x=total_capacity, y=total_units)) +
+    geom_point() +
+    geom_smooth(method="lm", formula=y~x)
+```
+Total units is correlated to total capacity by ward.
+
+```{r}
+df_building_units |>
+  select(building_complex_name, number_of_subsidized_units, unit_pop_est) |>
+  group_by(building_complex_name) |>
+  summarize(
+    total_capacity=sum(number_of_subsidized_units * unit_pop_est),
+    total_units=sum(number_of_subsidized_units)
+  ) |>
+  ggplot(aes(x=total_capacity, y=total_units)) +
+    geom_point() +
+    geom_smooth(method="lm", formula=y~x)
+```
+On the building complex level, the distribution of total capacity and total units is much less correlated. 
+
+Distribution of units by unit size
+```{r}
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, unit_pop_est) |>
+  group_by(unit_size) |>
+  ggplot(aes(x=unit_size, y=number_of_subsidized_units)) +
+    geom_boxplot()
+```
+
+```{r}
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, unit_pop_est) |>
+  mutate(sub_pop_est=number_of_subsidized_units*unit_pop_est) |>
+  group_by(unit_size) |>
+  ggplot(aes(x=unit_size, y=sub_pop_est, fill=unit_size)) +
+    geom_boxplot()
+
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, unit_pop_est) |>
+  mutate(sub_pop_est=number_of_subsidized_units*unit_pop_est) |>
+  group_by(unit_size) |>
+  ggplot(aes(x=unit_size, y=sub_pop_est, fill=unit_size)) +
+    geom_violin()
+```
+Box plot is more informative.
+
+Most buildings have a lot amount of units in each category.
+
+Stacked bar of unit size counts by ward:
+```{r}
+df_building_units |>
+  select(unit_size, ward, number_of_subsidized_units) |>
+  group_by(ward, unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units)
+  ) |>
+  ggplot(aes(x=reorder(ward, -total_subsidized_units), y=total_subsidized_units, fill=unit_size)) +
+    geom_col() +
+    labs(
+      title="1 Bedrooms are most prevalent",
+      subtitle="Count of units by size and type",
+      x="Unit size",
+      y="Count",
+      fill="Unit type"
+    ) +
+    coord_flip()
+
+
+
+df_building_units |>
+  select(unit_size, ward, number_of_subsidized_units, unit_pop_est) |>
+  group_by(ward, unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  ggplot(aes(x=reorder(ward, -total_subsidized_units), y=total_subsidized_units, fill=unit_size)) +
+    geom_col() +
+    labs(
+      title="1 Bedrooms are most prevalent",
+      subtitle="Count of units by size and type",
+      x="Unit size",
+      y="Count",
+      fill="Unit type"
+    ) +
+    coord_flip()
+```
+These seem too complex, and they do not get the point across:
+```{r}
+df_building_units |>
+  select(unit_size, number_of_subsidized_units) |>
+  group_by(unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units)
+  ) |>
+  ggplot(aes(x=reorder(unit_size, -total_subsidized_units), y=total_subsidized_units, fill=unit_size)) +
+    geom_col() +
+    labs(
+      title="1 Bedrooms are most prevalent",
+      subtitle="Count of units by size and type",
+      x="Unit size",
+      y="Count",
+      fill="Unit type"
+    ) +
+    coord_flip()
+
+
+
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, unit_pop_est) |>
+  group_by(unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  ggplot(aes(x=reorder(unit_size, -total_subsidized_units), y=total_subsidized_units, fill=unit_size)) +
+    geom_col() +
+    labs(
+      title="1 Bedrooms are most prevalent",
+      subtitle="Count of units by size and type",
+      x="Unit size",
+      y="Count",
+      fill="Unit type"
+    ) +
+    coord_flip()
+```
+Convert both to percentages and compare:
+```{r}
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, unit_pop_est) |>
+  group_by(unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units),
+    total_subsidized_units_pop=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  mutate(
+    pct_subsidized_units=round(total_subsidized_units/sum(total_subsidized_units), digits=4)*100,
+    pct_subsidized_units_pop=round(total_subsidized_units_pop/sum(total_subsidized_units_pop), digits=4)*100
+  ) |>
+  pivot_longer(
+    cols=starts_with("pct_"), 
+    names_to="pct_type", 
+    names_prefix="pct_",
+    values_to="pct"
+  ) |>
+  ggplot(aes(x=reorder(unit_size, -total_subsidized_units_pop), y=pct, fill=pct_type)) +
+    geom_col(position="dodge")
+```
+3B make up the largest share of the estimated subsidized housing capacity, but make up less than 20% of the units. 1B are the largest share of the units, but provide less than 20% of the estimated housing capacity. 
+
+Stacked bar of unit size population estimates by ward:
+```{r}
+
+```
+
+
+## Response
+### Requirements
+In this discussion post, we want you to demonstrate that you can:
+1. Process data using basic techniques (any of: filtering, sorting, grouping, summary statistics).
+2. Select chart types appropriate to the dataset and analytical question (e.g., bar, parts-of-a-whole, distributions, relational charts, etc.).
+3. Apply visual variables, hierarchy, and accessibility principles.
+4. Communicate what the charts show and why you chose those specific chart types through a written discussion.
+5. Demonstrate some initial thought about the final project
+
+Guiding Questions: 
+1. What dataset did you choose, and why is it relevant to your interests or your developing final assessment idea? Link at least one of your visualizations to the bigger question or topic you might explore in your final assessment.
+2. What three charts did you create, and what specific decisions did you make about the chart types? Briefly justify why each chart type was the right choice for the variable or relationship you visualized.
+3. What patterns, trends, or anomalies do the charts reveal?
+  - Identify key patterns or trends in your dataset and explain what they might mean.
+  - Interpret what the numbers suggest (do not just describe the chart).
+4. How might these early insights shape or support the direction of your final assessment? 
+5. Were there any challenges you encountered while processing or visualizing the data?
+
+
+Response of 200-300 words.
+
+### Takeaways
+All 25 wards have subsidized housing.
+
+
+
+# Rough work v2
+---
+title: "assessment_2"
+output: html_document
+---
+
+# Assessment 2
+
+## Load and prep the data
+Load libraries
+```{r}
+library(tidyr)
+library(janitor)
+library(ggplot2)
+library(forcats)
+library(dplyr)
+
+library(opendatatoronto)
+```
+
+Load in data (https://open.toronto.ca/dataset/subsidized-housing-listings/):
+```{r}
+# get package
+package <- show_package("153ea449-b7f4-4c4d-889a-ec0f89b3bbc9")
+	
+# get all resources for this package
+resources <- list_package_resources("153ea449-b7f4-4c4d-889a-ec0f89b3bbc9")
+	
+# identify datastore resources; by default, Toronto Open Data sets datastore resource format to CSV for non-geospatial and GeoJSON for geospatial resources
+datastore_resources <- filter(resources, tolower(format) %in% c('csv', 'geojson'))
+	
+# load the first datastore resource as a sample
+df_buildings <- filter(datastore_resources, row_number()==1) |> get_resource() |> clean_names()
+df_units <- filter(datastore_resources, row_number()==2) |> get_resource() |> clean_names()
+```
+
+Format the dfs:
+```{r}
+df_units$household_income_limit <- as.numeric(df_units$household_income_limit)
+df_units$units_available_in_the_last_12_months <- as.numeric(df_units$units_available_in_the_last_12_months)
+df_units$number_of_market_rent_units <- as.numeric(df_units$number_of_market_rent_units)
+df_units$number_of_subsidized_units <- as.numeric(df_units$number_of_subsidized_units)
+
+df_buildings$ward <- as.numeric(df_buildings$ward)
+```
+
+Helper dfs:
+```{r}
+size_estimates = data.frame(
+  unit_size=c("B", "1B", "2B", "3B", "4B", "5B", "6B"),
+  unit_pop_est=c(1, 1, 2, 3, 4, 5, 6)
+)
+
+# ward 1 to 25
+ward_names = data.frame(
+  ward=sort(unique(df_buildings$ward)),
+  ward_name=c(
+    "Etobicoke North",
+    "Etobicoke Centre",
+    "Etobicoke-Lakeshare",
+    "Parkdale-High Park",
+    "York South-Weston",
+    "York Centre",
+    "Humber River-Black Creek",
+    "Eglington-Lawrence",
+    "Davenport",
+    "Spadina-Fort York",
+    "University-Rosedale",
+    "Toronto-St. Paul's",
+    "Toronto Centre",
+    "Toronto-Danforth",
+    "Don Valley West",
+    "Don Valley East",
+    "Don Valley North",
+    "Willowdale",
+    "Beaches-East York",
+    "Scarborough Southwest",
+    "Scarborough Centre",
+    "Scarborough-Agincourt",
+    "Scarborough North",
+    "Scarborough-Guildwood",
+    "Scarborough-Rouge Park"
+  )
+)
+```
+
+Main analysis df, add unit info to each building:
+```{r}
+# join subsidized unit counts on building
+df_building_units <- df_buildings |>
+  select(
+    building_complex_name, 
+    provider_name,
+    provider_type,
+    ward
+  ) |>
+  merge(df_units, by="building_complex_name") |>
+  merge(ward_names, by="ward") |>
+  merge(size_estimates, by="unit_size")
+```
+
+### Post
+**Q1: What dataset did you choose, and why is it relevant to your interests or your developing final assessment idea? Link at least one of your visualizations to the bigger question or topic you might explore in your final assessment.**
+
+I am planning to focus my final assessment on understanding the supply of social housing in Toronto. The dataset I chose is the Subsidized Housing Listings published by Open Data Toronto, which includes data on all buildings with subsidized units. In Toronto, the majority of social housing is subsidized by the city; this dataset provides the best overview of the current supply. 
+
+A visualization relevant to this topic is the amount of subsidized housing capacity by ward. Wards are similar to neighbourhoods, dividing the city by xxx. Amount of subsidized housing capacity is calculated by the amount of units in the ward, assuming their capacity to be equal to the number of bedrooms a unit has (bachelor and basement assume 1). 
+
+**Q2: What three charts did you create, and what specific decisions did you make about the chart types? Briefly justify why each chart type was the right choice for the variable or relationship you visualized.**
+
+### Histogram of housing units per building complex
+```{r}
+df_building_units |>
+  select(building_complex_name, unit_size, number_of_subsidized_units, provider_type) |>
+  group_by(building_complex_name, provider_type) |>
+  summarize(
+    tot_units=sum(number_of_subsidized_units)
+  ) |>
+  ggplot(aes(x=tot_units, fill=provider_type)) +
+    geom_density(color="darkgray", alpha=0.7) +
+    theme_minimal() + 
+    labs(
+      title = "CO-OP and PNP buildings have a low unit count",
+      subtitle = "Distribution of subsidized units per building by provider",
+      x = "Unit count",
+      y = "Density",
+      fill="Provider type"
+    ) +
+    scale_x_continuous(breaks = c(100, 200, 300, 400, 500, 600, 700, 800, 900, 1000))
+```
+CO-OP and PNP buildings typically have lower unit counts with some larger buildings. The TCHC has a more even distribution.
+
+
+### Chart 1
+```{r}
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, provider_type) |>
+  group_by(provider_type, unit_size) |>
+  summarize(
+    tot_units = sum(number_of_subsidized_units)
+  ) |>
+  ggplot(aes(x=reorder(provider_type, -tot_units), y=tot_units, fill=reorder(unit_size, -tot_units))) +
+    geom_col(position = "dodge") +
+    labs(
+      title="The distribution of unit sizes differs between provider types",
+      subtitle="Subsidized housing units by unit size and provider type",
+      x="Provider type",
+      y="Count",
+      fill="Unit size"
+    )
+```
+
+
+### Chart 2
+First chart shows the estimated subsidized housing capacity by ward. 
+
+The variables used for this visualization are subsidized housing capacity (calculated from unit size and estimated unit population and aggregated per ward) and ward name. 
+
+This plot helps outline how much subsidized housing there is available by ward. While earlier explorations used number of buildings per ward or number of units per ward, they failed to represent the differing numbers of people that can live in these buildings and units. Using this plot, one can see the differences in subsidized housing capacity in each ward.
+```{r}
+df_building_units |>
+  select(ward, ward_name, unit_pop_est, number_of_subsidized_units, provider_type) |>
+  group_by(ward_name, provider_type) |>
+  summarize(
+    total_capacity=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  mutate(total_ward=sum(total_capacity))
+```
+
+
+
+```{r}
+# subsidized housing capacity by ward 
+df_building_units |>
+  select(ward, ward_name, unit_pop_est, number_of_subsidized_units, provider_type) |>
+  group_by(ward_name, provider_type) |>
+  summarize(
+    total_capacity=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  ggplot(aes(x=reorder(ward_name, -total_capacity), y=total_capacity, fill=provider_type)) +
+    geom_col() +
+    labs(
+      title="Toronto Centre has the most subsidized unit capacity",
+      subtitle="Estimated subsidized housing capacity by ward",
+      x="Ward",
+      y="Capacity"
+    ) +
+    coord_flip()
+```
+
+### Chart 3
+```{r}
+df_building_units |>
+  select(provider_type, unit_pop_est, number_of_subsidized_units) |>
+  group_by(provider_type) |>
+  summarize(
+    pop_est = sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  mutate(
+    pop_est_pct = round(pop_est/sum(pop_est), digits=3)*100,
+    ymax = cumsum(pop_est),
+    ymin = c(0, head(ymax, -1))
+  ) |>
+  ggplot(aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=provider_type)) +
+    geom_rect()  +
+    coord_polar(theta="y") + # Try to remove that to understand how the chart is built initially
+    xlim(c(2, 4)) +
+    geom_text(
+      aes(x=3.5, y=(ymax+ymin)/2, label=sprintf("%s%%", pop_est_pct))
+    ) +
+    theme_void() +
+    labs(
+      title="TCHC is the largest subsidized housing provider",
+      subtitle="Estimated subsidized housing capacity by provider type",
+      fill="Provider Type"
+    )
+```
+### Chart x
+How do unit counts compare to the capacity they provide?
+```{r}
+# subsidized housing units compared to estimated capacity by unit type
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, unit_pop_est) |>
+  group_by(unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units),
+    total_subsidized_units_pop=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  mutate(
+    pct_subsidized_units=round(total_subsidized_units/sum(total_subsidized_units) * -1, digits=4)*100,
+    pct_subsidized_units_pop=round(total_subsidized_units_pop/sum(total_subsidized_units_pop), digits=4)*100
+  ) |>
+  pivot_longer(
+    cols=starts_with("pct_"), 
+    names_to="pct_type", 
+    names_prefix="pct_",
+    values_to="pct"
+  ) |>
+  ggplot(aes(x=reorder(unit_size, -total_subsidized_units), y=pct, fill=pct_type)) +
+    geom_col(position="identity") +
+    coord_flip() +
+    labs(
+      title="Estimated capacity of units differs greatly from unit counts",
+      subtitle="Percent of unit count vs. estimated capacity by unit type"
+    )
+```
+1B make up the most units but account for a much smaller amount of capacity overall. 3B provide the most capacity, but are the fourth most common unit type by count. 
+
+Calculate by:
+1. Convert both to percentages and compare:
+```{r}
+df_building_units |>
+  select(unit_size, number_of_subsidized_units, unit_pop_est) |>
+  group_by(unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units),
+    total_subsidized_units_pop=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  mutate(
+    pct_subsidized_units=round(total_subsidized_units/sum(total_subsidized_units), digits=4)*100,
+    pct_subsidized_units_pop=round(total_subsidized_units_pop/sum(total_subsidized_units_pop), digits=4)*100
+  ) |>
+  pivot_longer(
+    cols=starts_with("pct_"), 
+    names_to="pct_type", 
+    names_prefix="pct_",
+    values_to="pct"
+  ) |>
+  ggplot(aes(x=reorder(unit_size, -total_subsidized_units_pop), y=pct, fill=pct_type)) +
+    geom_col(position="dodge")
+```
+
+### Chart 3
+Housing available by unit type?
+```{r}
+df_building_units |>
+  select(unit_size, units_available_in_the_last_12_months, unit_pop_est) |>
+  group_by(unit_size) |>
+  summarize(
+    units_available=sum(units_available_in_the_last_12_months),
+    est_pop_available=sum(units_available_in_the_last_12_months*unit_pop_est)
+  ) |>
+  mutate(
+    pct_units_available=round(units_available/sum(units_available), digits=4) * 100,
+    pct_est_pop_available=round(est_pop_available/sum(est_pop_available), digits=4) * 100
+  ) |>
+  select(unit_size, pct_units_available, pct_est_pop_available) |>
+  pivot_longer(
+    cols=starts_with("pct_"),
+    values_to = "pct",
+    names_to = "metric"
+  ) |>
+  ggplot(aes(x=reorder(unit_size, -pct), y=pct, fill=metric)) +
+    geom_col(position="dodge") +
+    geom_text(aes(label=round(pct), digit=0), position = position_dodge(width=1), vjust=-0.2, hjust=0.5) +
+    labs(
+      title="Basements make up the most available units in the last 12 months",
+      subtitle="Availability of units and housing capacity by unit type",
+      x="Unit type",
+      y="Percent",
+      fill="Measure"
+    )
+```
+### Chart relation between open units and total units by unit type
+```{r}
+df_building_units |>
+  select(unit_size, units_available_in_the_last_12_months, number_of_subsidized_units) |>
+  group_by(unit_size) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units),
+    total_available_units=sum(units_available_in_the_last_12_months)
+  ) |>
+  ggplot(aes(total_subsidized_units, total_available_units)) +
+    geom_point(aes(color=unit_size)) +
+    geom_smooth(method="lm", formula=y~x)
+```
+There is a positive correlation between the number of subsidized units and the available units in the last 12 months
+
+Provider type by estimated capacity
+```{r}
+df_building_units |>
+  select(provider_type, number_of_subsidized_units, unit_pop_est) |>
+  group_by(provider_type) |>
+  summarize(
+    pop_est = sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  mutate(
+    ymax = cumsum(pop_est),
+    ymin = c(0, head(ymax, -1))
+  ) |>
+  ggplot(aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=provider_type)) +
+    geom_rect()  +
+    coord_polar(theta="y") + # Try to remove that to understand how the chart is built initially
+    xlim(c(2, 4)) +
+    theme_void() +
+    labs(
+      title="TCHC is the largest subsidized housing provider",
+      subtitle="Estimated subsidized housing capacity by provider type",
+      fill="Provider Type"
+    )
+```
+
+
+### Chart x: Subsidized units vs. market units, capacity
+```{r}
+df_building_units |>
+  select(building_complex_name, number_of_subsidized_units, number_of_market_rent_units, provider_type) |>
+  group_by(building_complex_name, provider_type) |>
+  summarize(
+    tot_sub = sum(number_of_subsidized_units),
+    tot_mkt = sum(number_of_market_rent_units)
+  ) |>
+  ggplot(aes(x=tot_sub, y=tot_mkt)) +
+    geom_point(aes(color=provider_type)) +
+    geom_smooth(method="lm", formula=y~x)
+```
+
+### Chart relation between building count and housing capacity
+```{r}
+df_building_units |>
+  select(building_complex_name, number_of_subsidized_units, unit_pop_est, ward) |>
+  group_by(building_complex_name) |>
+  summarize(
+    total_subsidized_units=sum(number_of_subsidized_units),
+    total_subsidized_units_pop=sum(number_of_subsidized_units * unit_pop_est)
+  ) |>
+  ggplot(aes(total_subsidized_units, total_subsidized_units_pop)) +
+    geom_point() +
+    geom_smooth(method="lm", formula=y~x)
+```
+Larger buildings have less correlation between total units and estimated population.
+
+**Q3: What patterns, trends, or anomalies do the charts reveal? Key patterns or trends and what they mean. What the numbers suggest.**
+
+**Q4: How might these early insights shape or support the direction of your final assessment?**
+
+**Q5: Were there any challenges you encountered while processing or visualizing the data?**
+There is no data on actual subsidized housing population, which is more useful and relatable than unit numbers.

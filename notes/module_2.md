@@ -5,7 +5,7 @@
 - Understand and use key visual variables and design principles
 - Assess plots for clarity, accuracy, and accessibility
 - Select the right visualization types for different data and analytical questions
-### Key terms and definitions
+### Terms and definitions
 - Quantitative variable: Measured numerically and used for arithmetic comparisons, such as trip duration or temperature
 - Qualitative variable: Represents categories or groups rather than numeric values, such as user type or station name
 - Data frame: Structured table of data, observations of variables
