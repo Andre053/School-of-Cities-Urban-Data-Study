@@ -1,0 +1,241 @@
+---
+title: "assessment_2"
+output: html_document
+---
+
+Need to convert the data of interest into a geojson file.
+
+Data preparation from discussion response:
+```{r}
+library(tidyr)
+library(janitor)
+library(ggplot2)
+library(forcats)
+library(dplyr)
+
+library(opendatatoronto)
+
+# get package
+package <- show_package("153ea449-b7f4-4c4d-889a-ec0f89b3bbc9")
+
+# get all resources for this package
+resources <- list_package_resources("153ea449-b7f4-4c4d-889a-ec0f89b3bbc9")
+
+# identify datastore resources; by default, Toronto Open Data sets datastore resource format to CSV for non-geospatial and GeoJSON for geospatial resources
+datastore_resources <- filter(resources, tolower(format) %in% c('csv', 'geojson'))
+
+# load the first datastore resource as a sample
+df_buildings <- filter(datastore_resources, row_number()==1) |> get_resource() |> clean_names()
+df_units <- filter(datastore_resources, row_number()==2) |> get_resource() |> clean_names()
+
+df_units$household_income_limit <- as.numeric(df_units$household_income_limit)
+df_units$units_available_in_the_last_12_months <- as.numeric(df_units$units_available_in_the_last_12_months)
+df_units$number_of_market_rent_units <- as.numeric(df_units$number_of_market_rent_units)
+df_units$number_of_subsidized_units <- as.numeric(df_units$number_of_subsidized_units)
+
+df_buildings$ward <- as.numeric(df_buildings$ward)
+
+size_estimates = data.frame(
+  unit_size=c("B", "1B", "2B", "3B", "4B", "5B", "6B"),
+  unit_pop_est=c(1, 1, 2, 3, 4, 5, 6)
+)
+
+# ward 1 to 25
+ward_names = data.frame(
+  ward=sort(unique(df_buildings$ward)),
+  ward_name=c(
+    "Etobicoke North",
+    "Etobicoke Centre",
+    "Etobicoke-Lakeshare",
+    "Parkdale-High Park",
+    "York South-Weston",
+    "York Centre",
+    "Humber River-Black Creek",
+    "Eglington-Lawrence",
+    "Davenport",
+    "Spadina-Fort York",
+    "University-Rosedale",
+    "Toronto-St. Paul's",
+    "Toronto Centre",
+    "Toronto-Danforth",
+    "Don Valley West",
+    "Don Valley East",
+    "Don Valley North",
+    "Willowdale",
+    "Beaches-East York",
+    "Scarborough Southwest",
+    "Scarborough Centre",
+    "Scarborough-Agincourt",
+    "Scarborough North",
+    "Scarborough-Guildwood",
+    "Scarborough-Rouge Park"
+  )
+)
+
+# join subsidized unit counts on building
+df_building_units <- df_buildings |>
+  select(
+    building_complex_name, 
+    provider_name,
+    provider_type,
+    ward
+  ) |>
+  merge(df_units, by="building_complex_name") |>
+  merge(ward_names, by="ward") |>
+  merge(size_estimates, by="unit_size")
+
+```
+
+Now, to convert to geojson. The library geojsonio seems best.
+
+Tidygeocoder is for geocoding of addresses.
+
+```{r}
+library(geojsonio)
+library(tidygeocoder)
+```
+Prep the df that should be saved. The df should be of each building complex, along with every useful variable. 
+```{r}
+df_to_geojson <- df_building_units |>
+  select(
+    building_complex_name, 
+    ward_name, 
+    provider_name, 
+    provider_type, 
+    unit_size, 
+    units_available_in_the_last_12_months,
+    number_of_subsidized_units,
+    number_of_market_rent_units, 
+    unit_pop_est
+  ) |> 
+  mutate(
+    row = row_number(),
+    unit_pop_est = unit_pop_est * number_of_subsidized_units
+  ) |>
+  pivot_wider(
+    names_from = unit_size,
+    values_from = c(
+      units_available_in_the_last_12_months, 
+      number_of_subsidized_units,
+      number_of_market_rent_units,
+      unit_pop_est
+    )
+  ) |>
+  group_by(
+    building_complex_name,
+    ward_name, 
+    provider_name, 
+    provider_type
+  ) |>
+  summarize(
+    across(c(starts_with("number_of_")), ~ sum(.x, na.rm = TRUE)),
+    across(c(starts_with("units_available_")), ~ sum(.x, na.rm = TRUE)),
+    across(c(starts_with("unit_pop_est")), ~ sum(.x, na.rm = TRUE))
+  ) |>
+  rowwise() |>
+  mutate(
+    total_sub_units = across(c(starts_with("number_of_subsidized_units"))) |> rowSums(),
+    total_mkt_units = across(c(starts_with("number_of_market_rent_units"))) |> rowSums(),
+    total_available_units = across(c(starts_with("units_available_in_the_last_12_months"))) |> rowSums(),
+    total_pop_est = across(c(starts_with("unit_pop_est"))) |> rowSums()
+  ) |>
+  merge(
+    df_buildings |> select(
+      building_complex_name, 
+      latitude, 
+      longitude
+    ), 
+    on = "building_complex_name",
+    all.y = TRUE
+  )
+```
+
+```{r}
+df_to_geojson$latitude <- as.numeric(df_to_geojson$latitude)
+df_to_geojson$longitude <- as.numeric(df_to_geojson$longitude)
+```
+
+
+Convert to geojson
+```{r}
+df_to_geojson |>
+  geojson_write(
+    lat = 'latitude',
+    lon = 'longitude',
+    geometry = 'point',
+    file = "../geojson/subsidized_building_complexes.geojson",
+    crs = "epsg",
+    overwrite = TRUE
+  )
+```
+
+
+
+This will plot all building complex locations, but not all buildings. Can also create a geojson file of all addresses.
+
+Different addresses are separated by '||'
+```{r}
+df_addresses <- df_buildings |>
+  select(building_complex_name, building_address_list) |>
+  separate_longer_delim(building_address_list, delim = "||") |>
+  separate_longer_delim(building_address_list, delim = "|") |>
+  arrange(building_complex_name)
+```
+818 different addresses. Some have multiple numbers
+
+Add more to location data. Do the multiple numbers need to be expanded?
+```{r}
+# add Toronto, Ontario to each
+df_addresses <- df_addresses |>
+  mutate(building_address = paste(building_address_list, ", Toronto, Ontario")) |>
+  select(building_complex_name, building_address)
+```
+
+
+Now geocode the addresses. Takes a long time... 10 sec for 5, 3 min for 100
+```{r}
+df_addresses <- df_addresses |>
+  geocode(address = building_address, method = 'osm', lat = latitude, long = longitude)
+```
+
+813 unique addresses passed to geocode.
+
+```{r}
+df_to_geojson |>
+  geojson_write(
+    lat = 'latitude',
+    lon = 'longitude',
+    geometry = 'point',
+    file = "../geojson/subsidized_building_complexes.geojson",
+    crs = "epsg",
+    overwrite = TRUE
+  )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
