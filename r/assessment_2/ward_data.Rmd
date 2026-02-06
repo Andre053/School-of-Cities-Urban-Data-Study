@@ -1,0 +1,177 @@
+---
+title: "assessment_2_ward_analysis"
+output: html_document
+---
+
+Need to convert the data of interest into a geojson file.
+
+Data preparation from discussion response:
+```{r}
+library(tidyr)
+library(janitor)
+library(ggplot2)
+library(forcats)
+library(dplyr)
+
+library(opendatatoronto)
+library(readxl)
+library(stringr)
+```
+
+```{r}
+df_original <- read.csv("../data/ward_population.csv", row.names = NULL) |> clean_names()
+```
+
+Transpose
+```{r}
+row.names(df_original) <- df_original$age_group
+df <- df_original |> select(-age_group) |> t() |> as.data.frame()
+```
+
+Fix first column
+```{r}
+df <- df |>
+  mutate(area = rownames(df))
+```
+
+Add ward id column, matches area short codes in the form "00"
+```{r}
+df <- df |>
+  filter(area != 'toronto') |>
+  rowwise() |>
+  mutate(
+    ward_id = as.numeric(str_split_fixed(area, "_", 2)[2]),
+    ward_short_code = ifelse(
+      ward_id > 9,
+      paste(ward_id),
+      paste("0", ward_id, sep=""))
+  ) |>
+  select(-area) |> 
+  clean_names()
+```
+
+
+
+Now want to include the data from building analysis
+```{r}
+df_building_units <- read.csv('../data/buildings_analyzed.csv', row.names = NULL) |>
+  clean_names()
+```
+
+Analyze data by ward
+Should have kept ward number data in the df... now need to convert between them
+```{r}
+ward_names = data.frame(
+  ward_id=sort(unique(df$ward_id)),
+  ward_name=c(
+    "Etobicoke North",
+    "Etobicoke Centre",
+    "Etobicoke-Lakeshore",
+    "Parkdale-High Park",
+    "York South-Weston",
+    "York Centre",
+    "Humber River-Black Creek",
+    "Eglington-Lawrence",
+    "Davenport",
+    "Spadina-Fort York",
+    "University-Rosedale",
+    "Toronto-St. Paul's",
+    "Toronto Centre",
+    "Toronto-Danforth",
+    "Don Valley West",
+    "Don Valley East",
+    "Don Valley North",
+    "Willowdale",
+    "Beaches-East York",
+    "Scarborough Southwest",
+    "Scarborough Centre",
+    "Scarborough-Agincourt",
+    "Scarborough North",
+    "Scarborough-Guildwood",
+    "Scarborough-Rouge Park"
+  )
+)
+
+df <- df |>
+  merge(ward_names, on=ward_id)
+```
+
+
+
+ group_by(ward_name) |>
+  summarize(
+    count(provider_type),
+    
+  )
+
+
+
+```{r}
+df_ward_analysis <- df_building_units |>
+  select(ward_name, building_complex_name, total_sub_units, total_mkt_units, total_available_units, total_pop_est) |>
+  group_by(ward_name) |>
+  summarize(
+    building_complex_count = n(),
+    total_sub_units = sum(total_sub_units),
+    total_mkt_units = sum(total_mkt_units),
+    total_available_units = sum(total_available_units),
+    total_pop_est = sum(total_pop_est)
+  )
+
+```
+
+
+FUTURE TODO: For each ward, want the count of providers
+
+#df_ward_analysis <- 
+df_building_units |>
+  select(ward_name, building_complex_name, provider_type, total_sub_units, total_mkt_units, total_available_units, total_pop_est) |>
+  pivot_wider(names_from = provider_type, values_from = provider_type)
+
+
+Join ward data to population
+```{r}
+df <- df |>
+  merge(df_ward_analysis, on=ward_name, all = TRUE) |>
+  filter(! is.na(ward_name))
+```
+
+Add advanced statistics
+```{r}
+df <- df |>
+  mutate(
+    total_pop = total_age,
+    ratio_sub_units_to_pop = round(total_sub_units / total_pop, digits = 4),
+    ratio_available_units_to_pop = round(total_available_units / total_pop, digits = 4),
+    ratio_sub_pop_to_pop = round(total_pop_est / total_pop, digits = 4)
+  ) |>
+  select(-total_age)
+```
+
+
+Choose columns necessary
+```{r}
+df <- df |>
+  select(
+    ward_short_code, 
+    building_complex_count, 
+    total_pop, 
+    total_sub_units, 
+    total_mkt_units, 
+    total_available_units, 
+    total_pop_est, 
+    ratio_sub_units_to_pop, 
+    ratio_available_units_to_pop, 
+    ratio_sub_pop_to_pop
+  )
+
+```
+
+
+Download the ward population data
+```{r}
+write.csv(x = df, file = '../data/ward_population_processed.csv')
+```
+
+
+

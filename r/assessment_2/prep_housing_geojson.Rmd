@@ -46,7 +46,7 @@ ward_names = data.frame(
   ward_name=c(
     "Etobicoke North",
     "Etobicoke Centre",
-    "Etobicoke-Lakeshare",
+    "Etobicoke-Lakeshore",
     "Parkdale-High Park",
     "York South-Weston",
     "York Centre",
@@ -86,6 +86,8 @@ df_building_units <- df_buildings |>
 
 ```
 
+
+
 Now, to convert to geojson. The library geojsonio seems best.
 
 Tidygeocoder is for geocoding of addresses.
@@ -93,13 +95,14 @@ Tidygeocoder is for geocoding of addresses.
 ```{r}
 library(geojsonio)
 library(tidygeocoder)
+library(stringr)
 ```
 Prep the df that should be saved. The df should be of each building complex, along with every useful variable. 
 ```{r}
 df_to_geojson <- df_building_units |>
   select(
     building_complex_name, 
-    ward_name, 
+    ward_name,
     provider_name, 
     provider_type, 
     unit_size, 
@@ -155,6 +158,10 @@ df_to_geojson$latitude <- as.numeric(df_to_geojson$latitude)
 df_to_geojson$longitude <- as.numeric(df_to_geojson$longitude)
 ```
 
+Export the building data:
+```{r}
+#write.csv(x = df_to_geojson, file = '../data/buildings_analyzed.csv')
+```
 
 Convert to geojson
 ```{r}
@@ -194,11 +201,54 @@ df_addresses <- df_addresses |>
 
 Now geocode the addresses. Takes a long time... 10 sec for 5, 3 min for 100
 ```{r}
-df_addresses <- df_addresses |>
-  geocode(address = building_address, method = 'osm', lat = latitude, long = longitude)
+#df_addresses <- df_addresses |>
+#  geocode(address = building_address, method = 'osm', lat = latitude, long = longitude)
 ```
 
 813 unique addresses passed to geocode.
+
+Save these addresses as it took 1000 seconds to complete
+```{r}
+#write.csv(df_addresses, file = '../data/building_addresses.csv')
+df_addresses <- read.csv('../data/building_addresses.csv', row.names = NULL) |> clean_names()
+```
+
+Save the good addresses and separate those with NA values
+```{r}
+df_good_addrs <- df_addresses |>
+  filter(! (is.na(latitude) & is.na(longitude)))
+df_bad_addrs <- df_addresses |>
+  filter(is.na(latitude) & is.na(longitude))
+```
+All seem to have a space after the road name, should've removed whitespace before.
+```{r}
+df_bad_addrs$building_address <- str_replace(
+  df_bad_addrs$building_address, 
+  " ,", 
+  ","
+) # remove the erroneous space
+```
+
+Try to get locations again
+```{r}
+df_bad_addrs <- df_bad_addrs |>
+  select(building_complex_name, building_address) |>
+  geocode(address = building_address, method = 'osm', lat = latitude, long = longitude, return_input = TRUE, )
+```
+
+Check bad addrs
+```{r}
+df_bad_addrs |>
+  filter(is.na(latitude) | is.na(longitude))
+```
+
+Combine address lists and save
+```{r}
+df_addrs_fixed <- rbind(df_good_addrs, df_bad_addrs)
+write.csv(df_addrs_fixed, file = '../data/building_addresses_fixed.csv')
+```
+
+
 
 ```{r}
 df_to_geojson |>
